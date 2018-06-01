@@ -425,7 +425,7 @@
 	imageURLCurrent = nil;
 	imageURLPrevious = nil;
 	
-	NSString *errorDesc = nil;
+	NSError *errorDesc = nil;
 	NSPropertyListFormat format;
 	NSString *plistPath;
 	NSString *rootPath = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,
@@ -436,10 +436,10 @@
 	if ( [[NSFileManager defaultManager] fileExistsAtPath:plistPath]) {
 		NSData *plistXML = [[NSFileManager defaultManager] contentsAtPath:plistPath];
 		NSData *pUnarch = [NSPropertyListSerialization
-												 propertyListFromData:plistXML
-												 mutabilityOption:NSPropertyListMutableContainersAndLeaves
-												 format:&format
-												 errorDescription:&errorDesc];
+												 propertyListWithData:plistXML
+						   						options:NSPropertyListMutableContainersAndLeaves
+						   						format:&format
+												 error:&errorDesc];
 	
 		NSMutableDictionary *pData = [NSKeyedUnarchiver unarchiveObjectWithData:pUnarch];
 		self.dictImageList = pData;
@@ -454,10 +454,10 @@
 	if ([[NSFileManager defaultManager] fileExistsAtPath:plistPath]) {
 		NSData *plistXML = [[NSFileManager defaultManager] contentsAtPath:plistPath];
 		NSDictionary *temp = (NSDictionary *)[NSPropertyListSerialization
-					   propertyListFromData:plistXML
-					   mutabilityOption:NSPropertyListMutableContainersAndLeaves
+					   propertyListWithData:plistXML
+					   options:NSPropertyListMutableContainersAndLeaves
 					   format:&format
-					   errorDescription:&errorDesc];
+					   error:&errorDesc];
 	
 		[self.ComboConrol selectItemAtIndex: [[temp objectForKey:@"feedtype"] intValue] ];
 		[self.RefreshTimeCombo selectItemAtIndex: [[temp objectForKey:@"reloadtime"] intValue] ];
@@ -496,7 +496,7 @@
 //------------------------------------------------------
 - (void) saveSettings
 {
-	NSString *error;
+	NSError *error;
     NSString *rootPath = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES) objectAtIndex:0];
     NSString *plistPath = [rootPath stringByAppendingPathComponent:SETTINGS_PLIST];
 
@@ -507,9 +507,10 @@
 	NSDictionary *plistDict = [NSDictionary dictionaryWithObjects:
 							   [NSArray arrayWithObjects: [NSNumber numberWithInteger:[self.ComboConrol indexOfSelectedItem]], [NSNumber numberWithInteger:[self.RefreshTimeCombo indexOfSelectedItem]], lastRSSFeedLoadtime, nil]
 														  forKeys:[NSArray arrayWithObjects: @"feedtype", @"reloadtime", @"lastrssload", nil]];
-    NSData *plistData = [NSPropertyListSerialization dataFromPropertyList:plistDict
-																   format:NSPropertyListXMLFormat_v1_0
-														 errorDescription:&error];
+    NSData *plistData = [NSPropertyListSerialization dataWithPropertyList:[NSKeyedArchiver archivedDataWithRootObject:plistDict]
+														format:NSPropertyListXMLFormat_v1_0
+														options:0
+														 error:&error];
     if(plistData) {
         [plistData writeToFile:plistPath atomically:YES];
     }
@@ -722,8 +723,8 @@
 													forScreen:[NSScreen mainScreen]
 													  options:screenOptions
 														error:&error];
-			imageURLPrevious = imageURLCurrent;
-			imageURLCurrent = urlToLoad;
+			self->imageURLPrevious = self->imageURLCurrent;
+			self->imageURLCurrent = urlToLoad;
 			bLoadSuccessful = true;
 			
 		}
