@@ -456,19 +456,25 @@
 	
 	// load up our saves settings for rss feed to load and timer setting
 	plistPath = [rootPath stringByAppendingPathComponent:SETTINGS_PLIST];
+	bool bReadSettingsData = false;
 	if ([[NSFileManager defaultManager] fileExistsAtPath:plistPath]) {
-		NSData *plistXML = [[NSFileManager defaultManager] contentsAtPath:plistPath];
-		NSDictionary *temp = (NSDictionary *)[NSPropertyListSerialization
-					   propertyListWithData:plistXML
-					   options:NSPropertyListMutableContainersAndLeaves
-					   format:&format
-					   error:&errorDesc];
-	
-		[self.ComboConrol selectItemAtIndex: [[temp objectForKey:@"feedtype"] intValue] ];
-		[self.RefreshTimeCombo selectItemAtIndex: [[temp objectForKey:@"reloadtime"] intValue] ];
-		lastRSSFeedLoadtime  = [temp objectForKey:@"lastrssload"];
+		NSDictionary *settings = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+		if(settings)
+		{
+			@try
+			{
+				[self.ComboConrol selectItemAtIndex: [[settings valueForKey:@"feedtype"] intValue] ];
+				[self.RefreshTimeCombo selectItemAtIndex: [[settings valueForKey:@"reloadtime"] intValue] ];
+				lastRSSFeedLoadtime  = [settings objectForKey:@"lastrssload"];
+				bReadSettingsData = true;
+			}
+			@catch(NSException *ex)
+			{
+				
+			}
+		}
 	}
-	else
+	if(!bReadSettingsData)
 	{
 		[self.ComboConrol selectItemAtIndex: 0 ];
 		[self.RefreshTimeCombo selectItemAtIndex: 1 ];
@@ -501,7 +507,6 @@
 //------------------------------------------------------
 - (void) saveSettings
 {
-	NSError *error;
     NSString *rootPath = [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES) objectAtIndex:0];
     NSString *plistPath = [rootPath stringByAppendingPathComponent:SETTINGS_PLIST];
 
@@ -512,16 +517,7 @@
 	NSDictionary *plistDict = [NSDictionary dictionaryWithObjects:
 							   [NSArray arrayWithObjects: [NSNumber numberWithInteger:[self.ComboConrol indexOfSelectedItem]], [NSNumber numberWithInteger:[self.RefreshTimeCombo indexOfSelectedItem]], lastRSSFeedLoadtime, nil]
 														  forKeys:[NSArray arrayWithObjects: @"feedtype", @"reloadtime", @"lastrssload", nil]];
-    NSData *plistData = [NSPropertyListSerialization dataWithPropertyList:[NSKeyedArchiver archivedDataWithRootObject:plistDict]
-														format:NSPropertyListXMLFormat_v1_0
-														options:0
-														 error:&error];
-    if(plistData) {
-        [plistData writeToFile:plistPath atomically:YES];
-    }
-	else {
-		NSLog( @"Error: %@", error );
-	}
+	[plistDict writeToFile:plistPath atomically:YES];
 }
 
 
