@@ -8,6 +8,7 @@
 
 #import <Cocoa/Cocoa.h>
 #import "Reachability.h"
+typedef void (^ LoadResultCallback)(bool bSuccessful);
 
 @interface AppDelegate : NSObject <NSApplicationDelegate, NSComboBoxDelegate> {
 	IBOutlet NSMenu *statusMenu;
@@ -52,7 +53,7 @@
 - (IBAction)MarkAsFavorite:(id)sender;
 - (void) clearOldImageListEntriesIfNeeded;
 - (IBAction)previousBackground:(id)sender;
-- (bool)loadImage:(NSString *)urlToLoad;
+- (void)loadImage:(NSString *)urlToLoad loadResultCallback:(LoadResultCallback)resultCallback;
 - (void) saveImageDictToPlist;
 - (IBAction)deleteBackground:(id)sender;
 - (IBAction)RunAtLoginChecked:(id)sender;

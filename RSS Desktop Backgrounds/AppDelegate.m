@@ -290,24 +290,29 @@
 		nViewCountToUse++;
 	}
 
-	if ( ![self loadImage: loadItemKey ] )
+	[self loadImage: loadItemKey loadResultCallback:
+	 ^(bool bResult )
 	{
-		// failed to load image, just delete the entry and grab a new one
-		[self.dictImageList removeObjectForKey:loadItemKey];
-		[self ChangeBackground:sender]; // call ourselves again with the new image list
-		return;
-	}
-	
-	entryToLoad.dLastUsed = [NSDate date];
-	entryToLoad.nViewedCount = [NSNumber numberWithInt:([entryToLoad.nViewedCount intValue] + 1) ];
-
-	if ( [entryToLoad.bFavorite boolValue ] == YES )
-		[self.FavoriteMenuItem setState:NSOnState];
-	else
-		[self.FavoriteMenuItem setState:NSOffState];
-	
-	[self clearOldImageListEntriesIfNeeded];
-	[self saveImageDictToPlist];
+		if (!bResult)
+		{
+			// failed to load image, just delete the entry and grab a new one
+			[self.dictImageList removeObjectForKey:loadItemKey];
+			[self ChangeBackground:sender]; // call ourselves again with the new image list
+		}
+		else
+		{
+			entryToLoad.dLastUsed = [NSDate date];
+			entryToLoad.nViewedCount = [NSNumber numberWithInt:([entryToLoad.nViewedCount intValue] + 1) ];
+			
+			if ( [entryToLoad.bFavorite boolValue ] == YES )
+				[self.FavoriteMenuItem setState:NSOnState];
+			else
+				[self.FavoriteMenuItem setState:NSOffState];
+			
+			[self clearOldImageListEntriesIfNeeded];
+			[self saveImageDictToPlist];
+		}
+	} ];
 }
 	
 
@@ -560,7 +565,7 @@
 {
 	if ( imageURLPrevious )
 	{
-		[self loadImage: imageURLPrevious];
+		[self loadImage: imageURLPrevious loadResultCallback:NULL];
 		imageURLPrevious = nil;
 		
 		LoadedURLEntry *entry = [self.dictImageList objectForKey: imageURLCurrent];
@@ -668,69 +673,73 @@
 //------------------------------------------------------
 // Purpose: given a URL to an image load it as a background image and record it in our loaded plist
 //------------------------------------------------------
-- (bool)loadImage:(NSString *)urlToLoad
+- (void)loadImage:(NSString *)urlToLoad loadResultCallback:(LoadResultCallback)resultCallback
 {
-	NSURL *imageURL = [NSURL URLWithString:urlToLoad];
-	NSMutableDictionary *screenOptions =
-	[[[NSWorkspace sharedWorkspace] desktopImageOptionsForScreen:[NSScreen mainScreen]] mutableCopy];
-	
-	NSNumber *allowClipping = [NSNumber numberWithBool:true];
-	
-	// replace out the old clip value with the new
-	[screenOptions setObject:allowClipping forKey:NSWorkspaceDesktopImageAllowClippingKey];
+	@synchronized (self)
+	{
+		NSURL *imageURL = [NSURL URLWithString:urlToLoad];
+		NSMutableDictionary *screenOptions =
+		[[[NSWorkspace sharedWorkspace] desktopImageOptionsForScreen:[NSScreen mainScreen]] mutableCopy];
 		
-	NSURLRequest *urlRequst = [NSURLRequest requestWithURL:imageURL];
-	
-	bool __block bLoadSuccessful = false;
-	
-	dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0ul);
-	dispatch_sync(queue, ^{
-		NSURLResponse *response = nil;
-		NSError *error = nil;
+		NSNumber *allowClipping = [NSNumber numberWithBool:true];
 		
-		NSData *receivedData = [NSURLConnection sendSynchronousRequest:urlRequst
-													 returningResponse:&response
-																 error:&error];
+		// replace out the old clip value with the new
+		[screenOptions setObject:allowClipping forKey:NSWorkspaceDesktopImageAllowClippingKey];
 		
-		dispatch_async(dispatch_get_main_queue(), ^(void) {
-			(void)[self.SampleImage initImageCell:[[NSImage alloc] initWithData:receivedData] ];
-		});
+		NSURLRequest *urlRequest = [NSURLRequest requestWithURL:imageURL];
+		NSURLSession *session = [NSURLSession sharedSession];
+		NSURLSessionDataTask *task = [session dataTaskWithRequest:urlRequest
+			completionHandler:
+			  ^(NSData *receivedData, NSURLResponse *response, NSError *error) {
+				  dispatch_async(dispatch_get_main_queue(), ^(void) {
+					  (void)[self.SampleImage initImageCell:[[NSImage alloc] initWithData:receivedData] ];
+				  });
+				  
+				  NSString *docsDir;
+				  NSArray *dirPaths;
+				  
+				  dirPaths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
+				  docsDir = [dirPaths objectAtIndex:0];
+				  NSString *targetPrefix = [[NSString alloc] initWithString: [docsDir stringByAppendingPathComponent:@"screen"]];
+				  NSString *imageExt = [self contentTypeForImageData: receivedData];
+				  if ( imageExt != nil )
+				  {
+					  NSString * targetPath = [targetPrefix stringByAppendingString: imageExt ];
+					  
+					  if ( [[NSFileManager defaultManager] fileExistsAtPath:targetPath ] )
+					  {
+						  [[NSFileManager defaultManager] removeItemAtPath:targetPath error:&error];
+						  targetPath = [targetPrefix stringByAppendingString: @"1" ];
+						  targetPath = [targetPath stringByAppendingString: [self contentTypeForImageData: receivedData] ];
+					  }
+					  
+					  [[NSFileManager defaultManager] removeItemAtPath:targetPath error:&error];
+					  [receivedData writeToFile:targetPath atomically:YES];
+					  
+					  NSURL *fileURL = [NSURL fileURLWithPath:targetPath];
+					  
+					  [[NSWorkspace sharedWorkspace] setDesktopImageURL:fileURL
+															  forScreen:[NSScreen mainScreen]
+																options:screenOptions
+																  error:&error];
+					  self->imageURLPrevious = self->imageURLCurrent;
+					  self->imageURLCurrent = urlToLoad;
+					  if (resultCallback)
+					  {
+						  resultCallback(true);
+					  }
+				  }
+				  else
+				  {
+					  if (resultCallback)
+					  {
+						  resultCallback(false);
+					  }
+				  }
+			  } ];
 		
-		NSString *docsDir;
-		NSArray *dirPaths;
-		
-		dirPaths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
-		docsDir = [dirPaths objectAtIndex:0];
-		NSString *targetPrefix = [[NSString alloc] initWithString: [docsDir stringByAppendingPathComponent:@"screen"]];
-		NSString *imageExt = [self contentTypeForImageData: receivedData];
-		if ( imageExt != nil )
-		{
-			NSString * targetPath = [targetPrefix stringByAppendingString: imageExt ];
-			
-			if ( [[NSFileManager defaultManager] fileExistsAtPath:targetPath ] )
-			{
-				[[NSFileManager defaultManager] removeItemAtPath:targetPath error:&error];
-				targetPath = [targetPrefix stringByAppendingString: @"1" ];
-				targetPath = [targetPath stringByAppendingString: [self contentTypeForImageData: receivedData] ];
-			}
-			
-			[[NSFileManager defaultManager] removeItemAtPath:targetPath error:&error];
-			[receivedData writeToFile:targetPath atomically:YES];
-			
-			NSURL *fileURL = [NSURL fileURLWithPath:targetPath];
-			
-			[[NSWorkspace sharedWorkspace] setDesktopImageURL:fileURL
-													forScreen:[NSScreen mainScreen]
-													  options:screenOptions
-														error:&error];
-			self->imageURLPrevious = self->imageURLCurrent;
-			self->imageURLCurrent = urlToLoad;
-			bLoadSuccessful = true;
-			
-		}
-	});
-	
-	return bLoadSuccessful;
+		[task resume];
+	}
 }
 
 
@@ -889,19 +898,15 @@
 	{
 		NSString *RSSFeedText = [[NSString alloc] initWithFormat:@"https://www.reddit.com/r/%@Porn/.rss", [self.ComboConrol objectValueOfSelectedItem]];
 		NSURL *feedURL = [NSURL URLWithString:RSSFeedText];
-		NSURLRequest *urlRequst = [NSURLRequest requestWithURL:feedURL];
+		NSURLRequest *urlRequest = [NSURLRequest requestWithURL:feedURL];
 		
-		dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0ul);
-		dispatch_async(queue, ^{
-			NSURLResponse *response = nil;
-			NSError *error = nil;
-			NSData *receivedData = [NSURLConnection sendSynchronousRequest:urlRequst
-														 returningResponse:&response
-																	 error:&error];
-			
-			[self parseFeedForImages: receivedData];
-			
-		});
+		NSURLSession *session = [NSURLSession sharedSession];
+		NSURLSessionDataTask *task = [session dataTaskWithRequest:urlRequest
+												completionHandler:
+									  ^(NSData *receivedData, NSURLResponse *response, NSError *error) {
+										  [self parseFeedForImages: receivedData];
+									  }];
+		[task resume];
 	}
 }
 
